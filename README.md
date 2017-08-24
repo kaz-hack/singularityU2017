@@ -1,13 +1,12 @@
 singularityUApplication
 
-git clone https://github.com/kazukitakata/singularityU2017.git
-
-'
+```install_and_build
+$ git clone https://github.com/kazukitakata/singularityU2017.git_
 $ cmake .
 $ make all -j${number_of_cpu_core}
-'
+```
 
-'
+```
 $ ./bin/face_detection video {address of file} -j${number_of_cpu_core}
 $ ./bin/face_detection camera -j${number_of_cpu_core}
-'
+```
