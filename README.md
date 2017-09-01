@@ -1,7 +1,7 @@
 singularityUApplication
 
 ```install_and_build
-$ git clone https://github.com/kazukitakata/singularityU2017.git_
+$ git clone https://github.com/kazukitakata/singularityU2017.git
 $ cmake .
 $ make all -j${number_of_cpu_core}
 ```
