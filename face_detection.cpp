@@ -15,12 +15,12 @@ using namespace std;
 
 int inputImageWidth;
 int inputImageHeight;
-int outputImageWidth = 1024;
-//int outputImageWidth = 1536;
+
+// ここのパラメータは目視で決めます。使用するディスプレイのサイズによって変更する。CamTwistでウィンドウ内部のみ選択する。
+int outputImageWidth = 1250;
 int outputImageHeight =768;
 int logFrameNum = 30;
-//リサイズの設定
-float smallFactor = 1.0;
+int personNum = 4; //画面に描画する人数
 
 std::mutex mtx;
 std::mutex mtx2;
@@ -35,18 +35,6 @@ struct less_than_x
 
 cv::Rect dlibRectangleToOpenCVMat(dlib::rectangle r){
     return cv::Rect(r.left(), r.top(), r.width(), r.height());
-}
-
-// th1
-void capToFrame(cv::VideoCapture cap, cv::Mat& frame){
-    while(1){
-        //cout<<"capToFrame"<<endl;
-        cap >> frame;
-        int key1 = cv::waitKey(30);
-        if(key1 == 113){ //qが押されたら終了
-            break;
-        }
-    }
 }
 
 void moveItr(std::vector<std::vector<cv::Rect>> &pastCvFaces){
@@ -84,7 +72,7 @@ void remove(std::vector<T>& vector, unsigned int index)
 
 //上下の黒帯を削除
 cv::Mat modifyFrame(cv::Mat frame){
-    cv::Rect rect(0,270,inputImageWidth,540);
+    cv::Rect rect(0,inputImageHeight/4,inputImageWidth,inputImageHeight/2);
     cv::Mat smallFrame(frame,rect);
     return smallFrame;
 }
@@ -94,17 +82,11 @@ void detectFace(cv::Mat &frame, frontal_face_detector &detector, std::vector<cv:
         mtx.lock();
         std::vector<cv::Rect> cvFacesTmp;
         cv::Mat modFrame = modifyFrame(frame);
-        cv::resize(modFrame, modFrame, cv::Size(), smallFactor,smallFactor);
         cv_image<bgr_pixel> cimg(modFrame);
         std::vector<rectangle> faces = detector(cimg);
         for(int i=0;i<faces.size();i++){
-            //mtx.lock();
             cv::Rect facesTmp = dlibRectangleToOpenCVMat(faces[i]);
-            cv::Rect facesTmp2(facesTmp.x/smallFactor, (facesTmp.y/smallFactor)+270, facesTmp.width/smallFactor, facesTmp.height/smallFactor);
-            cvFacesTmp.push_back(facesTmp2);
-            //cv::Rect cvFace = dlibRectangleToOpenCVMat(faces[i]);
-            //cv::rectangle(frame,cv::Point(cvFace.x, cvFace.y),cv::Point(cvFace.x+cvFace.width,cvFace.y+cvFace.height),cv::Scalar(0,200,0),3,CV_AA);
-            //mtx.unlock();
+            cvFacesTmp.push_back(facesTmp);
         }
         cvFaces = cvFacesTmp;
         std::sort(cvFaces.begin(), cvFaces.end(), less_than_x());
@@ -124,7 +106,6 @@ void detectFace(cv::Mat &frame, frontal_face_detector &detector, std::vector<cv:
                 max2 = pastCvFaces[i].size();
             }
         }
-        //cout<<"max:"<<max<<",max2:"<<max2<<",cvFaces:"<<cvFaces.size()<<endl;
         moveItr(std::ref(pastCvFaces));
         if(max>=max2){ //人が減っていない場合、増減は検出誤差とみなす
             if(cvFaces.size()<max){
@@ -135,13 +116,6 @@ void detectFace(cv::Mat &frame, frontal_face_detector &detector, std::vector<cv:
         }else{ //人が減っているとみなす
             pastCvFaces[0] = cvFaces;
         }
-        /*
-        for(int i=0;i<pastCvFaces.size();i++){
-            for(int j=0;j<pastCvFaces[i].size();j++){
-                cout<<i<<","<<j<<":"<<pastCvFaces[i][j]<<endl;
-            }    
-        }
-        */
         detectCount++;
         cout<<"detect"<<detectCount<<endl;
         mtx.unlock();
@@ -161,22 +135,12 @@ std::vector<cv::Mat> getFaceImg(cv::Mat inputImage,
         if(cornerX<0){
             cornerX=0;
         }
-        /*
-        if(cornerY<0){
-            cornerY=0;
-        }
-        */
         if(cornerX+rectWidth>inputImageWidth){
             cornerX = inputImageWidth - rectWidth;
         }
-        /*
-        if(cornerY+rectHeight>inputImageHeight){
-            cornerY = inputImageHeight - rectHeight;
-        }
-        */
 
         //Panacast2の解像度はHDで1920*540。ただし上端と下端に黒い帯が入っているので、中央の540px分の高さだけ取り出したい
-        cv::Rect rect(cornerX,270,rectWidth,rectHeight);
+        cv::Rect rect(cornerX,inputImageHeight/4,rectWidth,rectHeight);
         cv::Mat rectImg(inputImage,rect);
         faceImg.push_back(rectImg);
     }
@@ -187,7 +151,6 @@ void PinP_tr(const cv::Mat srcImg, const cv::Mat smallImg, const int tx, const i
 {
     //前景画像の変形行列
     cv::Mat mat = (cv::Mat_<double>(2,3)<<1.0, 0.0, tx, 0.0, 1.0, ty);
-
     //アフィン変換の実行
     cv::warpAffine(smallImg, srcImg, mat, srcImg.size(), CV_INTER_LINEAR, cv::BORDER_TRANSPARENT);
 }
@@ -197,16 +160,15 @@ cv::Mat makeOutputImage(cv::Mat inputImage, std::vector<cv::Rect> faces)
     std::vector<cv::Mat> faceImg;
     cv::Mat backgroundImg(cv::Size(outputImageWidth, outputImageHeight), CV_8UC3, cv::Scalar::all(255));
     cv::Mat outputImage;
-    int rectWidth;
-    int rectHeight;
-    
+    int rectHeight = inputImageHeight/2;
+    int rectWidth = rectHeight/3;
+        
     if(faces.size()!=0){
-        rectHeight = 540;
-        rectWidth = rectHeight/3;
-        //高さは540で固定？
         faceImg = getFaceImg(inputImage,faces,rectWidth,rectHeight);
         float resizeFactor = (float)outputImageHeight/rectHeight;
         
+        //4人描画したい場合は4
+        int movePtr = outputImageWidth/personNum;
         int ptrX=0;
         int ptrY=0;
         for(int i=0;i<faceImg.size();i++){    
@@ -214,7 +176,7 @@ cv::Mat makeOutputImage(cv::Mat inputImage, std::vector<cv::Rect> faces)
             cv::resize(faceImg[i],faceImg[i],cv::Size(),resizeFactor,resizeFactor);
             PinP_tr(backgroundImg,faceImg[i],ptrX,ptrY);
             if(ptrX<outputImageWidth-rectWidth){
-                ptrX+=rectWidth;
+                ptrX+=movePtr;
             }else{
                 ptrX=0;
                 ptrY+=rectHeight;
@@ -245,12 +207,8 @@ int main(int argc, char* argv[])
             return 1;
         }
 
-
         inputImageWidth = cap.get(CV_CAP_PROP_FRAME_WIDTH);
         inputImageHeight = cap.get(CV_CAP_PROP_FRAME_HEIGHT);
-        //inputImageWidth = 1024;
-        //inputImageHeight = 768;
-        //cout<<inputImageWidth<<","<<inputImageHeight<<endl;
 
         image_window win;
 
@@ -289,44 +247,6 @@ int main(int argc, char* argv[])
             capCount++;
             cout<<"cap"<<capCount<<endl;
         }
-
-        /*
-        cout<<"1"<<endl;
-        cv::Mat frame;
-        std::thread th1(capToFrame, cap, std::ref(frame));
-        th1.detach();
-
-        cout<<"2"<<endl;
-        while(frame.empty()==true){
-            cout<<"wait1"<<endl;
-        }
-        cout<<"3"<<endl;
-        std::vector<cv::Rect> cvFaces;
-        std::thread th2(detectFace, frame, std::ref(detector), std::ref(cvFaces), std::ref(pastCvFaces));
-        th2.detach();
-        cout<<"4"<<endl;
-
-        cout<<"5"<<endl;
-        cv::Mat outputImage;
-        while(cvFaces.empty()==true || frame.empty()==true){
-            //cout<<"wait2"<<endl;
-            //cout<<"cvFaces"<<cvFaces.empty()<<endl;
-            //cout<<"frame"<<frame.empty()<<endl;
-        }
-        cout<<"6"<<endl;
-        //std::thread th3(makeOutputImage, frame, cvFaces);
-        //th3.detach();
-        while(1){
-            cout<<"7"<<endl;
-            cv::Mat outputImage = makeOutputImage(frame, cvFaces);
-            cout<<"8"<<endl;
-            cv::imshow("outputImage", outputImage);
-            int key3 = cv::waitKey(30);
-            if(key3 == 113){ //qが押されたら終了
-                break;
-            }
-        }
-        */
     }
 
     catch(serialization_error& e)
